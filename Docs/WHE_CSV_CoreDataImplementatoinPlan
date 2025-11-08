@@ -1,0 +1,17 @@
+Overview
+Implement a local Core Data database for World Heritage Sites app by parsing the UESCO whc001.csv file. This provides offline access to all heritage site information.
+
+Implementation Steps
+1. Core Data Model(HeritagSite.xcdatamodelid) with entities matching CSV structure:
+  - Required attributes: name, country, latitude, longtidue, yearInscribed, category, shortDescription
+  - Optional attributes: mainImageURL, galleryImagesURLs(transformable array)
+  - Indexes on frequently queried fields(name, contry, category)
+
+2. Create the CSV Parser Service
+3. Create Core Data Manager
+4. First Launch Data Import
+5. Update Data Manager
+6. Update SwiftUI views for Core Data
+7. Image Caching
+
+  
