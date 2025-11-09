@@ -23,10 +23,11 @@ struct CSVParser {
             if let coord = reader["Coordinates"], !coord.isEmpty {
                 let comps = coord.split(separator: ",")
                 if comps.count == 2 {
-                    let lat = Double(comps[0].trimmingCharacters(in: .whitespaces)) ?? 0
-                    let lon = Double(comps[1].trimmingCharacters(in: .whitespaces)) ?? 0
-                    obj.setValue(lat, forKey: "latitude")
-                    obj.setValue(lon, forKey: "longitude")
+                    if let lat = Double(comps[0].trimmingCharacters(in: .whitespaces)),
+                       let lon = Double(comps[1].trimmingCharacters(in: .whitespaces)) {
+                        obj.setValue(lat, forKey: "latitude")
+                        obj.setValue(lon, forKey: "longitude")
+                    }
                 }
             }
 

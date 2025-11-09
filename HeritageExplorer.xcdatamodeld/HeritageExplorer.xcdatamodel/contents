@@ -6,13 +6,18 @@
         <attribute name="galleryImageURLs" optional="YES" attributeType="String"/>
         <attribute name="isFavorite" optional="YES" attributeType="Boolean" usesScalarValueType="YES"/>
         <attribute name="isVisited" optional="YES" attributeType="Boolean" usesScalarValueType="YES"/>
-        <attribute name="latitude" optional="YES" attributeType="Double" defaultValueString="0.0" usesScalarValueType="YES"/>
-        <attribute name="longitude" optional="YES" attributeType="Double" defaultValueString="0.0" usesScalarValueType="YES"/>
+        <attribute name="latitude" optional="YES" attributeType="Double" usesScalarValueType="YES"/>
+        <attribute name="longitude" optional="YES" attributeType="Double" usesScalarValueType="YES"/>
         <attribute name="mainImageURL" optional="YES" attributeType="String"/>
         <attribute name="name" optional="YES" attributeType="String"/>
         <attribute name="region" optional="YES" attributeType="String"/>
         <attribute name="shortDes" optional="YES" attributeType="String"/>
         <attribute name="unqiueID" optional="YES" attributeType="String"/>
-        <attribute name="yearInscribed" optional="YES" attributeType="Integer 16" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="yearInscribed" optional="YES" attributeType="Integer 16" usesScalarValueType="YES"/>
+        <attribute name="enrichedAt" optional="YES" attributeType="Date"/>
+        <attribute name="dataSource" optional="YES" attributeType="String"/>
+        <attribute name="imageLicense" optional="YES" attributeType="String"/>
+        <attribute name="wikidataQID" optional="YES" attributeType="String"/>
+        <attribute name="commonsCategory" optional="YES" attributeType="String"/>
     </entity>
 </model>

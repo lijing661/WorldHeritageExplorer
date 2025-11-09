@@ -23,6 +23,8 @@ struct WorldHeritageExplorerApp: App {
                         await DataImporter.importInitialCSVIfNeeded()
                         didImportCSV = true
                     }
+                    // Start enrichment after initial import
+                    EnrichmentService.shared.startIfNeeded(container: persistenceController.container)
                 }
         }
     }

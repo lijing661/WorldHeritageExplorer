@@ -18,6 +18,11 @@ struct PersistenceController {
         if inMemory {
             container.persistentStoreDescriptions.first!.url = URL(fileURLWithPath: "/dev/null")
         }
+        // Enable lightweight migration
+        if let desc = container.persistentStoreDescriptions.first {
+            desc.setOption(true as NSNumber, forKey: NSMigratePersistentStoresAutomaticallyOption)
+            desc.setOption(true as NSNumber, forKey: NSInferMappingModelAutomaticallyOption)
+        }
         container.loadPersistentStores { (storeDescription, error) in
             if let error = error as NSError? {
                 fatalError("Unresolved error \(error), \(error.userInfo)")
