@@ -7,12 +7,17 @@
 
 import SwiftUI
 import CoreData
+import Kingfisher
 
 @main
 struct WorldHeritageExplorerApp: App {
     private let persistenceController = PersistenceController.shared
 
     @AppStorage("didImportCSV") private var didImportCSV = false
+
+    init() {
+        ImageLoaderConfig.configure()
+    }
 
     var body: some Scene {
         WindowGroup {

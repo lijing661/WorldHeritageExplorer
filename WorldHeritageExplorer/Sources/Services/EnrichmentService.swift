@@ -146,10 +146,51 @@ final class EnrichmentService {
 
             exportMissingReport(lines: missingReportLines)
             print("[Enrichment] Missing counts -> main: \(cntMain), gallery: \(cntGallery), coords: \(cntCoord)")
+            // After enrichment, perform legacy image URL rewrite to thumbnails
+            self.rewriteLegacyLargeImages(context: context)
             print("[Enrichment] Completed.")
         } catch {
             print("[Enrichment] Failed: \(error)")
         }
+    }
+
+    // Rewrite previously stored large image URLs to thumbnail versions when possible
+    private func rewriteLegacyLargeImages(context: NSManagedObjectContext) {
+        let fetch = NSFetchRequest<NSManagedObject>(entityName: "Heritage")
+        fetch.predicate = NSPredicate(format: "mainImageURL CONTAINS[c] 'upload.wikimedia.org' AND (mainImageURL CONTAINS[c] '/commons/' )")
+        do {
+            let items = try context.fetch(fetch)
+            var updated = 0
+            for obj in items {
+                guard let urlStr = obj.value(forKey: "mainImageURL") as? String, let thumb = deriveThumb(from: urlStr) else { continue }
+                if thumb != urlStr {
+                    obj.setValue(thumb, forKey: "mainImageURL")
+                    // If gallery only had original single URL, update it too
+                    if let gallery = obj.value(forKey: "galleryImageURLs") as? String, gallery == urlStr {
+                        obj.setValue(thumb, forKey: "galleryImageURLs")
+                    }
+                    updated += 1
+                    if updated % 100 == 0 { try? context.save() }
+                }
+            }
+            if context.hasChanges { try context.save() }
+            if updated > 0 { print("[Enrichment] Rewrote \(updated) mainImageURL(s) to thumbnails.") }
+        } catch {
+            print("[Enrichment] Legacy rewrite failed: \(error)")
+        }
+    }
+
+    private func deriveThumb(from original: String) -> String? {
+        // Commons standard thumb pattern: add /thumb/ and size segment ending in original filename
+        // Example original: https://upload.wikimedia.org/wikipedia/commons/a/a1/Filename.jpg
+        // Thumb:            https://upload.wikimedia.org/wikipedia/commons/thumb/a/a1/Filename.jpg/300px-Filename.jpg
+        guard original.contains("/wikipedia/commons/") else { return nil }
+        guard let lastSlash = original.lastIndex(of: "/") else { return nil }
+        let filename = String(original[lastSlash...].dropFirst())
+        // Skip if already a thumb
+        if original.contains("/thumb/") { return original }
+        let basePart = original.replacingOccurrences(of: "/wikipedia/commons/", with: "/wikipedia/commons/thumb/")
+        return basePart + "/300px-" + filename
     }
 
     private func escapeCSV(_ v: String) -> String {
@@ -235,18 +276,22 @@ final class EnrichmentService {
     private func fetchCommonsImageInfo(filename: String) -> ImageInfo? {
         let encoded = filename.replacingOccurrences(of: " ", with: "_")
         let title = "File:\(encoded)".addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? encoded
-        let urlStr = "https://commons.wikimedia.org/w/api.php?action=query&titles=\(title)&prop=imageinfo&iiprop=url|extmetadata&format=json&origin=*"
+        // Request a small thumbnail to speed up UI; license still in extmetadata
+        let urlStr = "https://commons.wikimedia.org/w/api.php?action=query&titles=\(title)&prop=imageinfo&iiprop=url|extmetadata|size&iiurlwidth=300&iiurlheight=300&format=json&origin=*"
         guard let url = URL(string: urlStr) else { return nil }
         let json = syncGET(url: url)
         guard let root = json as? [String: Any], let query = root["query"] as? [String: Any], let pages = query["pages"] as? [String: Any] else { return nil }
         for (_, pageVal) in pages {
-            guard let page = pageVal as? [String: Any], let imageinfo = page["imageinfo"] as? [[String: Any]], let first = imageinfo.first, let imgURL = first["url"] as? String else { continue }
+            guard let page = pageVal as? [String: Any], let imageinfo = page["imageinfo"] as? [[String: Any]], let first = imageinfo.first else { continue }
+            // Prefer thumbnail url if provided, else original url
+            let imgURL = (first["thumburl"] as? String) ?? (first["url"] as? String)
+            guard let urlStr = imgURL else { continue }
             var license = ""
             if let ext = first["extmetadata"] as? [String: Any] {
                 if let licShort = (ext["LicenseShortName"] as? [String: Any])?["value"] as? String { license = licShort }
                 if license.isEmpty, let licUrl = (ext["LicenseUrl"] as? [String: Any])?["value"] as? String { license = licUrl }
             }
-            return ImageInfo(url: imgURL, license: license)
+            return ImageInfo(url: urlStr, license: license)
         }
         return nil
     }
