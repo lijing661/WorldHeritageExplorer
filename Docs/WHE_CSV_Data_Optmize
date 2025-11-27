@@ -1,0 +1,63 @@
+基于目前图片下载慢的问题进行优化重构
+图片下载慢的主要原因是下载UNESCO的大图（mainImageURL），这些图片通常分辨率高达4000px以上，文件较大，
+且服务器响应慢。基本思路是将whc001.csv里的unesco的原始图URL用Wikimedia/Common的缩略图代替。
+优化方案分两个阶段：
+阶段1 离线批量获取映射（推荐在 Tools 脚本中一次性做）
+阶段2 导入或二次迁移，写入 mainThumbURL（可保留原 mainImageURL 供大图/全屏使用）
+
+字段仍用前述：mainThumbURL + imageLicense + dataSource(+ enrichedAt)。
+
+阶段1 详细流程：
+
+1. 基础数据加载：
+  - 读取 whc001.csv （抓取 name / country / 可能的唯一ID。若 CSV 含 UNESCO 编号列，后续可用 P757 精准匹配）。
+2. Wikidata 批量获取：
+  - 若有 UNESCO ID：用 SPARQL 一次性取全部 QID + P18： SELECT ?item ?id ?image WHERE { ?item wdt:P31 wd:Q9259 ; wdt:P757 ?id . OPTIONAL { ?item wdt:P18 ?image } }
+  - 若无 ID：用 SPARQL 取所有世界遗产 (Q9259) 的 ?itemLabel 与 P18，再用本地脚本匹配名字（大小写、去括号、去副标题、国家限定二次过滤）。
+3. 构建映射表：
+  - 对每条记录：匹配到 QID → 记录 QID；有 P18 → 文件名。
+4. 获取缩略图 URL：
+  - 收集所有 File: 名称（P18），批量调用 Commons API： action=query&titles=File:AAA|File:BBB&prop=imageinfo&iiprop=url|extmetadata&iiurlwidth=300
+  - 提取：thumburl（或构造 https://upload.wikimedia.org/.../300px-XXX.ext），同时抓取 License（extmetadata.LicenseShortName / LicenseUrl）。
+5. Fallback（无 P18）：
+  - Wikipedia REST Summary：/api/rest_v1/page/summary/{Title} （如有 thumbnail→取 300 宽，必要时再 PageImages：action=query&prop=pageimages&pithumbsize=300）。
+  - 若仍无，保留原 UNESCO URL（mainThumbURL 留空或设为原图；建议留空以便后续在线富化再补）。
+6. 写入结果 CSV：
+  新建映射文件thumbs_mapping.csv
+  - Columns: uniqueID（UUID） | name | country | mainImageURL(original) | mainThumbURL | imageLicense | dataSource (wikidata|wikipedia|commons|csv)
+  - 保留原始whc001.csv，但先不要只读。
+7. 性能与限速：
+  - SPARQL：单次获取即可（<2s）。
+  - Commons imageinfo：分批（≤50 files/请求），约 25 请求搞定 1200+ 项。
+  - Wikipedia fallback：仅少量（无 P18）才调用，预计几十请求。
+  - 总耗时：正常网络 < 1–2 分钟。
+
+阶段2 导入/迁移：
+
+  - 轻量迁移加 mainThumbURL 等字段（若未加）。
+  - 导入脚本：读取结果 CSV，更新每条 Heritage 的 mainThumbURL、imageLicense、dataSource、wikidataQID（若你加此字段）。
+  - 保留原 mainImageURL（供详情加载高清或未来替换）。
+
+显示策略：
+  - 列表与详情首屏：先用 mainThumbURL（快速、统一尺寸）。
+  - 详情大图/全屏：可继续用 mainImageURL（UNESCO 原图）或后续再换成 Commons 原始 URL。
+  - 后续富化任务只关注 mainThumbURL 为空的条目（减少重复工作）。
+
+匹配注意点：
+  - 名称清洗：移除 “ (… )” 尾部、替换多余空格、统一大小写。
+  - 多国遗产：匹配时可用国家辅助过滤（Wikidata labels + sitelinks）。
+  - 去重：同名不同遗产时优先匹配 P31=Q9259 且有 P757（如可用）。
+
+风险与取舍：
+ - 用 P18 保证版权与稳定性；有些 UNESCO 图可能与 Commons 不同（需风格一致时建议统一换）。
+ - 缩略图 300px 对列表与首屏足够；如需更清晰可再增加 480px 逻辑。
+ - 少量无 P18：可能只得到百科信息图；可标记 dataSource=wikipedia。
+
+
+总结执行顺序：
+ 1. 迁移新增字段（若还没有）。
+ 2. 写 Tools 脚本：SPARQL 拉取 → 匹配 → Commons缩略图批量 → Fallback Wikipedia → 输出映射 CSV。
+ 3. 导入映射 CSV 更新 Core Data。
+ 4. UI 改成使用 mainThumbURL。
+ 5. 后续后台富化仅处理缺失缩略图的少数条目。
+

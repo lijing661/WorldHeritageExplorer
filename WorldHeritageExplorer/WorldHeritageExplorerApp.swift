@@ -28,6 +28,8 @@ struct WorldHeritageExplorerApp: App {
                         await DataImporter.importInitialCSVIfNeeded()
                         didImportCSV = true
                     }
+                    // 尝试应用离线生成的缩略图映射（如果文件已打包）
+                    await DataImporter.applyThumbsMappingFromBundle()
                     // Start enrichment after initial import
                     EnrichmentService.shared.startIfNeeded(container: persistenceController.container)
                 }

@@ -9,6 +9,7 @@
         <attribute name="latitude" optional="YES" attributeType="Double" usesScalarValueType="YES"/>
         <attribute name="longitude" optional="YES" attributeType="Double" usesScalarValueType="YES"/>
         <attribute name="mainImageURL" optional="YES" attributeType="String"/>
+        <attribute name="mainThumbURL" optional="YES" attributeType="String"/>
         <attribute name="name" optional="YES" attributeType="String"/>
         <attribute name="region" optional="YES" attributeType="String"/>
         <attribute name="shortDes" optional="YES" attributeType="String"/>

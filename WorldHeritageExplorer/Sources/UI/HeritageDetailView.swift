@@ -37,6 +37,9 @@ struct HeritageDetailView: View {
     private var mainImageURL: URL? {
         if let s = heritage.value(forKey: "mainImageURL") as? String, !s.isEmpty { return URL(string: s) } else { return nil }
     }
+    private var mainThumbURL: URL? {
+        if let s = heritage.value(forKey: "mainThumbURL") as? String, !s.isEmpty { return URL(string: s) } else { return nil }
+    }
     // Safe year extraction already implemented below
 
     private var isFavorite: Bool { (heritage.value(forKey: "isFavorite") as? Bool) ?? false }
@@ -115,7 +118,7 @@ struct HeritageDetailView: View {
         .toolbar {
             ToolbarItem(placement: .navigationBarLeading) {
                 Button(action: { dismiss() }) {
-                    Text("Back")
+                    Image(systemName: "chevron.left")
                         .font(.headline)
                 }
             }

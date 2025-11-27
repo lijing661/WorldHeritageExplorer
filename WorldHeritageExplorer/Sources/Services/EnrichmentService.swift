@@ -37,6 +37,53 @@ final class EnrichmentService {
         context.mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy
 
         do {
+            // --- Pass 1: enrich missing mainThumbURL ---
+            let thumbReq = NSFetchRequest<NSManagedObject>(entityName: "Heritage")
+            thumbReq.predicate = NSPredicate(format: "mainThumbURL == nil OR mainThumbURL == ''")
+            let thumbTargets = try context.fetch(thumbReq)
+            if !thumbTargets.isEmpty { print("[ThumbEnrichment] Targets: \(thumbTargets.count)") }
+            var processedThumb = 0
+            for obj in thumbTargets {
+                autoreleasepool {
+                    guard (obj.value(forKey: "mainThumbURL") as? String)?.isEmpty ?? true else { return }
+                    let name = obj.value(forKey: "name") as? String ?? ""
+                    let country = obj.value(forKey: "country") as? String ?? ""
+                    // Resolve / reuse QID
+                    var qid = obj.value(forKey: "wikidataQID") as? String
+                    if qid == nil || qid!.isEmpty { qid = lookupWikidataQID(name: name, country: country); if let qid = qid { obj.setValue(qid, forKey: "wikidataQID") } }
+
+                    var thumbAssigned = false
+                    if let qid = qid {
+                        let bundle = fetchWikidataBundle(qid: qid)
+                        if let img = bundle.image { // Commons via P18
+                            obj.setValue(img.url, forKey: "mainThumbURL")
+                            if !img.license.isEmpty { obj.setValue(img.license, forKey: "imageLicense") }
+                            obj.setValue(Date(), forKey: "enrichedAt")
+                            obj.setValue("wikidata", forKey: "dataSource")
+                            thumbAssigned = true
+                        }
+                    }
+                    if !thumbAssigned { // Wikipedia fallback
+                        if let wikiImg = fetchWikipediaImage(name: name, country: country) {
+                            obj.setValue(wikiImg.url, forKey: "mainThumbURL")
+                            if let lic = wikiImg.license, !lic.isEmpty { obj.setValue(lic, forKey: "imageLicense") }
+                            obj.setValue(Date(), forKey: "enrichedAt")
+                            obj.setValue("wikipedia", forKey: "dataSource")
+                            thumbAssigned = true
+                        }
+                    }
+                    if thumbAssigned { processedThumb += 1 }
+                    if processedThumb % 100 == 0 { try? context.save() }
+                }
+            }
+            if processedThumb > 0 { try? context.save() }
+            // Remaining empties after pass 1
+            let remainReq = NSFetchRequest<NSFetchRequestResult>(entityName: "Heritage")
+            remainReq.predicate = NSPredicate(format: "mainThumbURL == nil OR mainThumbURL == ''")
+            let remaining = try context.count(for: remainReq)
+            print("[ThumbEnrichment] Assigned thumbnails: \(processedThumb). Remaining empty mainThumbURL: \(remaining)")
+
+            // --- Pass 2: legacy enrichment for other missing fields (original logic) ---
             let req = NSFetchRequest<NSManagedObject>(entityName: "Heritage")
             req.predicate = NSCompoundPredicate(orPredicateWithSubpredicates: [
                 NSPredicate(format: "mainImageURL == nil OR mainImageURL == ''"),
@@ -44,10 +91,7 @@ final class EnrichmentService {
                 NSPredicate(format: "latitude == nil OR longitude == nil OR (latitude == 0 AND longitude == 0)")
             ])
             let targets = try context.fetch(req)
-            if targets.isEmpty {
-                print("[Enrichment] No targets.")
-                return
-            }
+            if targets.isEmpty { print("[Enrichment] No targets."); return }
             print("[Enrichment] Targets: \(targets.count)")
 
             var missingReportLines: [String] = ["name,country,needsMainImage,needsGallery,needsCoordinates"]

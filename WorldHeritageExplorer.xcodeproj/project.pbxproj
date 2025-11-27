@@ -10,6 +10,7 @@
 		00FE2523ADBB9F09478E5B05 /* Pods_WorldHeritageExplorer_WorldHeritageExplorerUITests.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = BDACEEC248FDDCC477D14507 /* Pods_WorldHeritageExplorer_WorldHeritageExplorerUITests.framework */; };
 		86541FEB2EA3782100B46B14 /* whc001.csv in Resources */ = {isa = PBXBuildFile; fileRef = 86541FEA2EA3782100B46B14 /* whc001.csv */; };
 		8692477D2EB5B02D001501A6 /* HeritageExplorer.xcdatamodeld in Sources */ = {isa = PBXBuildFile; fileRef = 8692477B2EB5B02D001501A6 /* HeritageExplorer.xcdatamodeld */; };
+		8692491C2ECF3A4F001501A6 /* thumbs_mapping.csv in Resources */ = {isa = PBXBuildFile; fileRef = 8692491B2ECF3A4F001501A6 /* thumbs_mapping.csv */; };
 		B8879B083D3ECF90BD6E64F4 /* Pods_WorldHeritageExplorerTests.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 5FAA3C291B0493521C114F18 /* Pods_WorldHeritageExplorerTests.framework */; };
 		D66E643BE5684AE03A3B45BA /* Pods_WorldHeritageExplorer.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 16103707558CD7D0AB074C7A /* Pods_WorldHeritageExplorer.framework */; };
 /* End PBXBuildFile section */
@@ -37,6 +38,7 @@
 		5FAA3C291B0493521C114F18 /* Pods_WorldHeritageExplorerTests.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_WorldHeritageExplorerTests.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		86541FEA2EA3782100B46B14 /* whc001.csv */ = {isa = PBXFileReference; lastKnownFileType = text; path = whc001.csv; sourceTree = "<group>"; };
 		8692477C2EB5B02D001501A6 /* HeritageExplorer.xcdatamodel */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcdatamodel; path = HeritageExplorer.xcdatamodel; sourceTree = "<group>"; };
+		8692491B2ECF3A4F001501A6 /* thumbs_mapping.csv */ = {isa = PBXFileReference; lastKnownFileType = text; path = thumbs_mapping.csv; sourceTree = "<group>"; };
 		86A900772EA355960080827D /* WorldHeritageExplorer.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = WorldHeritageExplorer.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		86A900842EA355960080827D /* WorldHeritageExplorerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = WorldHeritageExplorerTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		86A9008E2EA355960080827D /* WorldHeritageExplorerUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = WorldHeritageExplorerUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -97,6 +99,7 @@
 		86A9006E2EA355960080827D = {
 			isa = PBXGroup;
 			children = (
+				8692491B2ECF3A4F001501A6 /* thumbs_mapping.csv */,
 				8692477B2EB5B02D001501A6 /* HeritageExplorer.xcdatamodeld */,
 				86541FEA2EA3782100B46B14 /* whc001.csv */,
 				86A900792EA355960080827D /* WorldHeritageExplorer */,
@@ -260,6 +263,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				8692491C2ECF3A4F001501A6 /* thumbs_mapping.csv in Resources */,
 				86541FEB2EA3782100B46B14 /* whc001.csv in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

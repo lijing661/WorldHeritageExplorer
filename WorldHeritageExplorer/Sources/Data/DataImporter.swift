@@ -91,6 +91,9 @@ enum DataImporter {
                 obj.setValue(reader["States Names"], forKey: "country")
                 obj.setValue(reader["Region"], forKey: "region")
 
+                // unique id from CSV
+                if let uuid = reader["UUID"], !uuid.isEmpty { obj.setValue(uuid, forKey: "unqiueID") }
+
                 if let coord = reader["Coordinates"], !coord.isEmpty {
                     let comps = coord.split(separator: ",")
                     if comps.count == 2 {
@@ -107,6 +110,10 @@ enum DataImporter {
                 obj.setValue(reader["Main Image"], forKey: "mainImageURL")
                 if let imgs = reader["Images"] { obj.setValue(imgs, forKey: "galleryImageURLs") }
 
+                // Optional thumb column if present (from tools pipeline)
+                if let thumb = reader["Main Thumb"], !thumb.isEmpty { obj.setValue(thumb, forKey: "mainThumbURL") }
+                if let thumb2 = reader["mainThumbURL"], !thumb2.isEmpty { obj.setValue(thumb2, forKey: "mainThumbURL") }
+
                 // Map 'Date inscribed' to yearInscribed; ignore 'Secondary dates'
                 let dateCols = ["Date inscribed", "Date Inscribed", "date inscribed"]
                 var yearNum: NSNumber? = nil
@@ -122,5 +129,44 @@ enum DataImporter {
             }
         }
         if context.hasChanges { try context.save() }
+    }
+
+    // Apply thumbnails mapping produced by tools script: thumbs_mapping.csv in app bundle
+    static func applyThumbsMappingFromBundle() async {
+        guard let url = Bundle.main.url(forResource: "thumbs_mapping", withExtension: "csv") else {
+            print("[ThumbsMapping] thumbs_mapping.csv not found in bundle")
+            return
+        }
+        let container = PersistenceController.shared.container
+        await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+            container.performBackgroundTask { context in
+                context.mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy
+                do {
+                    let stream = InputStream(url: url)!
+                    let reader = try CSVReader(stream: stream, hasHeaderRow: true)
+                    var updated = 0
+                    while reader.next() != nil {
+                        guard let uuid = reader["uniqueID"] ?? reader["UUID"], let thumb = reader["mainThumbURL"], !uuid.isEmpty else { continue }
+                        let fetch = NSFetchRequest<NSManagedObject>(entityName: "Heritage")
+                        fetch.fetchLimit = 1
+                        fetch.predicate = NSPredicate(format: "unqiueID == %@", uuid)
+                        if let obj = try context.fetch(fetch).first {
+                            obj.setValue(thumb, forKey: "mainThumbURL")
+                            if let lic = reader["imageLicense"], !lic.isEmpty { obj.setValue(lic, forKey: "imageLicense") }
+                            if let src = reader["dataSource"], !src.isEmpty { obj.setValue(src, forKey: "dataSource") }
+                            if let qid = reader["wikidataQID"], !qid.isEmpty { obj.setValue(qid, forKey: "wikidataQID") }
+                            obj.setValue(Date(), forKey: "enrichedAt")
+                            updated += 1
+                            if updated % 200 == 0 { try context.save() }
+                        }
+                    }
+                    if context.hasChanges { try context.save() }
+                    print("[ThumbsMapping] Applied mapping to \(updated) record(s)")
+                } catch {
+                    print("[ThumbsMapping] Failed: \(error)")
+                }
+                cont.resume()
+            }
+        }
     }
 }

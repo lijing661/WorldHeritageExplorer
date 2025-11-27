@@ -191,8 +191,10 @@ struct ListView: View {
     private func prefetchTopImages(limit: Int = 20) {
         let baseList = isSearching ? searchResults : filtered
         let urls: [URL] = baseList.prefix(limit).compactMap { obj in
-            guard let s = obj.value(forKey: "mainImageURL") as? String, let u = URL(string: s), !s.isEmpty else { return nil }
-            return u
+            // prefer thumb
+            if let s = obj.value(forKey: "mainThumbURL") as? String, let u = URL(string: s), !s.isEmpty { return u }
+            if let s = obj.value(forKey: "mainImageURL") as? String, let u = URL(string: s), !s.isEmpty { return u }
+            return nil
         }
         let keys = Set(urls.map { $0.absoluteString })
         guard !urls.isEmpty, keys != lastPrefetchKeys else { return }
@@ -241,7 +243,8 @@ private struct HeritageRow: View {
 
     var body: some View {
         HStack(alignment: .center, spacing: 12) {
-            let urlStr = item.value(forKey: "mainImageURL") as? String
+            let thumbStr = item.value(forKey: "mainThumbURL") as? String
+            let urlStr = (thumbStr?.isEmpty ?? true) ? (item.value(forKey: "mainImageURL") as? String) : thumbStr
             if let urlStr, let url = URL(string: urlStr), !urlStr.isEmpty {
                 KFImage(url)
                     .placeholder { skeleton }
