@@ -10,7 +10,7 @@ enum ImageLoaderConfig {
     static func configure() {
         // Configure downloader concurrency & timeouts
         let downloader = KingfisherManager.shared.downloader
-        var session = downloader.sessionConfiguration
+        let session = downloader.sessionConfiguration
         session.httpMaximumConnectionsPerHost = 8 // increase parallelism per host
         session.timeoutIntervalForRequest = 8     // quicker failover
         session.timeoutIntervalForResource = 15

@@ -22,8 +22,10 @@ struct MapTabView: View {
         span: MKCoordinateSpan(latitudeDelta: 60, longitudeDelta: 120)
     )
     @State private var showFilter = false
-    @State private var didSetInitialCenter = false
-    private let locationOnce = LocationOnce()
+    @State private var lastSelectedAnnotationID: String? = nil
+    @State private var selectedHeritageObject: NSManagedObject? = nil
+    @State private var navigateToDetail = false
+    @State private var selectedAnnotationID: String? = nil
 
     init(selectedTab: Binding<MainTab>) {
         self._selectedTab = selectedTab
@@ -47,6 +49,7 @@ struct MapTabView: View {
             let country = (obj.value(forKey: "country") as? String) ?? ""
             let category = (obj.value(forKey: "category") as? String) ?? ""
             return HeritageAnnotation(
+                id: obj.objectID.uriRepresentation().absoluteString,
                 coordinate: CLLocationCoordinate2D(latitude: lat, longitude: lon),
                 title: name,
                 subtitle: country,
@@ -55,38 +58,62 @@ struct MapTabView: View {
         }
     }
 
+    private var idToObject: [String: NSManagedObject] {
+        Dictionary(uniqueKeysWithValues: heritages.map { ($0.objectID.uriRepresentation().absoluteString, $0) })
+    }
+
     var body: some View {
-        ZStack(alignment: .top) {
-            HeritageMKMap(annotations: annotations, region: $region, showsUser: true)
-                .ignoresSafeArea() // 让地图延伸到最顶
-        }
-        .navigationBarHidden(true)
-        .hideTabBarIfAvailable()
-        .safeAreaInset(edge: .top) { // 顶栏固定在最上方
-            topBar
-                .background(Color(.systemBackground).ignoresSafeArea(edges: .top)) // 覆盖状态栏背景，无分割线/阴影
-        }
-        // Center to user's location only once on first appear
-        .task { if !didSetInitialCenter { await centerToUserOnce() } }
-        .sheet(isPresented: $showFilter) {
-            VStack(spacing: 16) {
-                Text("Filter (Coming Soon)").font(.headline)
-                Text("按类型/国家/年份筛选将在后续加入").foregroundColor(.secondary)
-                Button("关闭") { showFilter = false }
+        NavigationStack {
+            ZStack(alignment: .top) {
+                HeritageMKMap(
+                    annotations: annotations,
+                    region: $region,
+                    selectedAnnotationID: $selectedAnnotationID,
+                    showsUser: true,
+                    onAnnotationSelect: handleAnnotationSelect(id:),
+                    onDetailTapped: pushDetailFor(id:)
+                )
+                .ignoresSafeArea()
+
+                // Hidden navigation link to push detail view
+                NavigationLink(isActive: $navigateToDetail) {
+                    if let obj = selectedHeritageObject {
+                        HeritageDetailView(item: obj)
+                    } else {
+                        EmptyView()
+                    }
+                } label: {
+                    EmptyView()
+                }
+                .hidden()
             }
-            .padding()
-            .presentationDetents([.fraction(0.25)])
+            .navigationBarHidden(true)
+            .hideTabBarIfAvailable()
+            .safeAreaInset(edge: .top) {
+                topBar
+                    .background(Color(.systemBackground).ignoresSafeArea(edges: .top))
+            }
+            .sheet(isPresented: $showFilter) {
+                VStack(spacing: 16) {
+                    Text("Filter (Coming Soon)").font(.headline)
+                    Text("按类型/国家/年份筛选将在后续加入").foregroundColor(.secondary)
+                    Button("关闭") { showFilter = false }
+                }
+                .padding()
+                .presentationDetents([.fraction(0.25)])
+            }
         }
     }
 
-    private func centerToUserOnce() async {
-        didSetInitialCenter = true
-        if let coord = await locationOnce.requestCurrentCoordinate() {
-            region = MKCoordinateRegion(
-                center: coord,
-                span: MKCoordinateSpan(latitudeDelta: 0.8, longitudeDelta: 0.8)
-            )
-        }
+    private func handleAnnotationSelect(id: String) {
+        // First tap: just select / show callout. The callout has a detail button.
+        lastSelectedAnnotationID = id
+    }
+
+    private func pushDetailFor(id: String) {
+        selectedHeritageObject = idToObject[id]
+        selectedAnnotationID = id
+        navigateToDetail = true
     }
 
     // 干净的系统风格顶栏（44pt 内容高度），无分割线/阴影
@@ -149,7 +176,9 @@ final class HeritageAnnotation: NSObject, MKAnnotation {
     var title: String?
     var subtitle: String?
     let kind: HeritageKind
-    init(coordinate: CLLocationCoordinate2D, title: String?, subtitle: String?, kind: HeritageKind) {
+    let id: String
+    init(id: String, coordinate: CLLocationCoordinate2D, title: String?, subtitle: String?, kind: HeritageKind) {
+        self.id = id
         self.coordinate = coordinate
         self.title = title
         self.subtitle = subtitle
@@ -163,9 +192,14 @@ final class HeritageAnnotation: NSObject, MKAnnotation {
 struct HeritageMKMap: UIViewRepresentable {
     var annotations: [HeritageAnnotation]
     @Binding var region: MKCoordinateRegion
+    @Binding var selectedAnnotationID: String?
     var showsUser: Bool = true
+    var onAnnotationSelect: ((String) -> Void)? = nil
+    var onDetailTapped: ((String) -> Void)? = nil
 
-    func makeCoordinator() -> Coordinator { Coordinator() }
+    func makeCoordinator() -> Coordinator {
+        Coordinator(parent: self)
+    }
 
     func makeUIView(context: Context) -> MKMapView {
         let map = MKMapView(frame: .zero)
@@ -182,19 +216,48 @@ struct HeritageMKMap: UIViewRepresentable {
     }
 
     func updateUIView(_ map: MKMapView, context: Context) {
-        if map.region.center.latitude != region.center.latitude || map.region.center.longitude != region.center.longitude || map.region.span.latitudeDelta != region.span.latitudeDelta {
+        // Only set region from SwiftUI when it has explicitly changed and the user is not dragging.
+        let regionChanged = map.region.center.latitude != region.center.latitude
+            || map.region.center.longitude != region.center.longitude
+            || map.region.span.latitudeDelta != region.span.latitudeDelta
+        if regionChanged, !context.coordinator.isUserInteracting {
             map.setRegion(region, animated: true)
         }
         map.showsUserLocation = showsUser
-        // Simple refresh approach: replace all when counts differ (data ~1k)
         let existing = map.annotations.compactMap { $0 as? HeritageAnnotation }
         if existing.count != annotations.count {
             map.removeAnnotations(map.annotations)
             map.addAnnotations(annotations)
         }
+        // Re-select the annotation when returning from detail so the callout stays visible
+        if let selectedID = selectedAnnotationID,
+           let annotation = annotations.first(where: { $0.id == selectedID }),
+           !map.selectedAnnotations.contains(where: { ($0 as? HeritageAnnotation)?.id == selectedID }) {
+            map.selectAnnotation(annotation, animated: true)
+        }
     }
 
     final class Coordinator: NSObject, MKMapViewDelegate {
+        var parent: HeritageMKMap
+        var onAnnotationSelect: ((String) -> Void)?
+        var onDetailTapped: ((String) -> Void)?
+        var isUserInteracting = false
+
+        init(parent: HeritageMKMap) {
+            self.parent = parent
+            self.onAnnotationSelect = parent.onAnnotationSelect
+            self.onDetailTapped = parent.onDetailTapped
+        }
+
+        func mapView(_ mapView: MKMapView, regionWillChangeAnimated animated: Bool) {
+            isUserInteracting = true
+        }
+
+        func mapView(_ mapView: MKMapView, regionDidChangeAnimated animated: Bool) {
+            isUserInteracting = false
+            parent.region = mapView.region
+        }
+
         func mapView(_ mapView: MKMapView, viewFor annotation: MKAnnotation) -> MKAnnotationView? {
             if let cluster = annotation as? MKClusterAnnotation {
                 let view = mapView.dequeueReusableAnnotationView(withIdentifier: HeritageClusterView.reuseID, for: cluster) as! HeritageClusterView
@@ -206,7 +269,34 @@ struct HeritageMKMap: UIViewRepresentable {
             view.configure(kind: ann.kind)
             view.clusteringIdentifier = "heritage"
             view.canShowCallout = true
+
+            // Add a detail button to the callout; tapping it opens the heritage detail page
+            let button = UIButton(type: .detailDisclosure)
+            button.addTarget(self, action: #selector(detailButtonTapped(_:)), for: .touchUpInside)
+            button.heritageAnnotationView = view
+            view.rightCalloutAccessoryView = button
+            view.detailButton = button
+            view.annotationID = ann.id
+
             return view
+        }
+
+        @objc private func detailButtonTapped(_ sender: UIButton) {
+            guard let id = sender.heritageAnnotationView?.annotationID else { return }
+            onDetailTapped?(id)
+        }
+
+        func mapView(_ mapView: MKMapView, didSelect view: MKAnnotationView) {
+            if let ann = view.annotation as? HeritageAnnotation {
+                onAnnotationSelect?(ann.id)
+            } else if let cluster = view.annotation as? MKClusterAnnotation,
+                      let ann = cluster.memberAnnotations.first as? HeritageAnnotation {
+                onAnnotationSelect?(ann.id)
+            }
+        }
+
+        func mapView(_ mapView: MKMapView, didDeselect view: MKAnnotationView) {
+            // no-op
         }
     }
 }
@@ -215,6 +305,8 @@ struct HeritageMKMap: UIViewRepresentable {
 
 final class HeritageMarkerView: MKMarkerAnnotationView {
     static let reuseID = "heritage.marker"
+    var detailButton: UIButton?
+    var annotationID: String?
     override init(annotation: MKAnnotation?, reuseIdentifier: String?) {
         super.init(annotation: annotation, reuseIdentifier: reuseIdentifier)
         displayPriority = .defaultHigh
@@ -226,6 +318,17 @@ final class HeritageMarkerView: MKMarkerAnnotationView {
         glyphTintColor = .white
     }
 }
+
+private var heritageAnnotationViewKey: UInt8 = 0
+
+private extension UIButton {
+    var heritageAnnotationView: HeritageMarkerView? {
+        get { objc_getAssociatedObject(self, &heritageAnnotationViewKey) as? HeritageMarkerView }
+        set { objc_setAssociatedObject(self, &heritageAnnotationViewKey, newValue, .OBJC_ASSOCIATION_ASSIGN) }
+    }
+}
+
+// MARK: - Cluster View
 
 final class HeritageClusterView: MKAnnotationView {
     static let reuseID = "heritage.cluster"
@@ -272,41 +375,6 @@ private extension View {
         } else {
             self
         }
-    }
-}
-
-// One-shot location helper (requests once, no continuous updates)
-final class LocationOnce: NSObject, CLLocationManagerDelegate {
-    private let manager = CLLocationManager()
-    private var continuation: CheckedContinuation<CLLocationCoordinate2D?, Never>?
-
-    override init() {
-        super.init()
-        manager.delegate = self
-    }
-
-    func requestCurrentCoordinate() async -> CLLocationCoordinate2D? {
-        if manager.authorizationStatus == .notDetermined {
-            manager.requestWhenInUseAuthorization()
-        }
-        return await withCheckedContinuation { cont in
-            continuation = cont
-            if CLLocationManager.locationServicesEnabled() {
-                // Prefer a single-shot request
-                manager.requestLocation()
-            } else {
-                cont.resume(returning: nil)
-            }
-        }
-    }
-
-    func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
-        continuation?.resume(returning: locations.last?.coordinate)
-        continuation = nil
-    }
-    func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
-        continuation?.resume(returning: nil)
-        continuation = nil
     }
 }
 
