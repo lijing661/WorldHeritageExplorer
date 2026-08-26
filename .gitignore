@@ -77,3 +77,13 @@ playground.xcworkspace
 Docs/ChatRecords
 Tools
 
+# Python virtual environments and related
+.venv/
+venv/
+ENV/
+env/
+__pycache__/
+*.py[cod]
+pip-wheel-metadata/
+*.egg-info/
+.python-version
