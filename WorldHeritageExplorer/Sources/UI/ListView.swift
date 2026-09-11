@@ -7,6 +7,7 @@
 import SwiftUI
 import CoreData
 import Kingfisher
+import FlagKit
 
 struct ListView: View {
     @Environment(\.managedObjectContext) private var viewContext
@@ -47,34 +48,75 @@ struct ListView: View {
         filtered // could be further limited if needed
     }
 
-    private var countryGroups: [(name: String, items: [NSManagedObject], visited: Int, total: Int)] {
+    // Utility to split country strings into tokens used across the list
+    private func splitCountries(_ raw: String?) -> [String] {
+        guard let raw = raw, !raw.isEmpty else { return ["Unknown"] }
+        let separators = CharacterSet(charactersIn: ",，、;/|")
+        let parts = raw
+            .components(separatedBy: separators)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        return parts.isEmpty ? ["Unknown"] : parts
+    }
+
+    // Utility to split ISO codes from CSV (e.g., "AL, ME" -> ["al","me"]) 
+    private func splitISOCodes(_ raw: String?) -> [String] {
+        guard let raw = raw, !raw.isEmpty else { return [] }
+        let separators = CharacterSet(charactersIn: ",;|/ ")
+        let parts = raw
+            .components(separatedBy: separators)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+            .filter { !$0.isEmpty }
+        return parts
+    }
+
+    private var countryGroups: [(name: String, items: [NSManagedObject], visited: Int, total: Int, isoCode: String?)] {
         // Build groups by splitting multi-country strings and assigning the same heritage into each country bucket
         var buckets: [String: [NSManagedObject]] = [:]
+        var countryToISO: [String: String] = [:]
 
-        func splitCountries(_ raw: String?) -> [String] {
-            guard let raw = raw, !raw.isEmpty else { return ["Unknown"] }
-            // Support ASCII comma, Chinese comma，ideographic comma、semicolon, slash, pipe
-            let separators = CharacterSet(charactersIn: ",，、;/|")
-            let parts = raw
-                .components(separatedBy: separators)
-                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                .filter { !$0.isEmpty }
-            return parts.isEmpty ? ["Unknown"] : parts
-        }
+        for obj in Array(heritages) {
+            // capture isoCode if present for mapping
+            let isoRaw = (obj.value(forKey: "isoCode") as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let isoTokens = splitISOCodes(isoRaw)
+            let countryTokens = splitCountries(obj.value(forKey: "country") as? String)
 
-        for obj in filtered {
-            let tokens = splitCountries(obj.value(forKey: "country") as? String)
-            for token in tokens {
+            // Try to align ISO tokens to country tokens by index when a heritage spans multiple countries.
+            // Prefer authoritative country-name -> ISO lookup when available. Fallback to first iso token or raw iso string.
+            for (idx, token) in countryTokens.enumerated() {
                 buckets[token, default: []].append(obj)
+
+                if countryToISO[token] == nil {
+                    if isoTokens.count > idx {
+                        countryToISO[token] = isoTokens[idx]
+                    } else if let lookup = isoForCountry(token) {
+                        // Prefer authoritative name->ISO mapping when available
+                        countryToISO[token] = lookup
+                    } else if let first = isoTokens.first {
+                        countryToISO[token] = first
+                    } else if let raw = isoRaw, !raw.isEmpty {
+                        // try to pick a candidate from raw iso string
+                        let candidates = splitISOCodes(raw)
+                        if let c = candidates.first { countryToISO[token] = c }
+                        else { countryToISO[token] = raw.lowercased() }
+                    }
+                }
             }
         }
 
-        let result: [(name: String, items: [NSManagedObject], visited: Int, total: Int)] = buckets.map { (key, list) in
+        // Final pass: for any country bucket still missing an ISO, try the name->ISO lookup on the bucket key
+        for key in buckets.keys {
+            if countryToISO[key] == nil, let lookup = isoForCountry(key) {
+                countryToISO[key] = lookup
+            }
+        }
+
+        let result: [(name: String, items: [NSManagedObject], visited: Int, total: Int, isoCode: String?)] = buckets.map { (key, list) in
             // Deduplicate by objectID within each bucket (in case of repeated separators or duplicates)
             let uniqueItems: [NSManagedObject] = Dictionary(grouping: list, by: { $0.objectID }).compactMap { $0.value.first }
             let visitedCount = uniqueItems.reduce(0) { $0 + (((( $1.value(forKey: "isVisited") as? Bool) ?? false) ? 1 : 0)) }
             let sortedItems = uniqueItems.sorted { ($0.value(forKey: "name") as? String ?? "") < ($1.value(forKey: "name") as? String ?? "") }
-            return (name: key, items: sortedItems, visited: visitedCount, total: uniqueItems.count)
+            return (name: key, items: sortedItems, visited: visitedCount, total: uniqueItems.count, isoCode: countryToISO[key])
         }
 
         return result.sorted { $0.name < $1.name }
@@ -145,7 +187,7 @@ struct ListView: View {
                         List {
                             ForEach(Array(countryGroups.enumerated()), id: \.element.name) { index, group in
                                 Group {
-                                    CountryRow(index: index + 1, name: group.name, total: group.total, visited: group.visited, expanded: expandedCountries.contains(group.name)) {
+                                    CountryRow(index: index + 1, name: group.name, isoCode: group.isoCode, total: group.total, visited: group.visited, expanded: expandedCountries.contains(group.name)) {
                                         if expandedCountries.contains(group.name) {
                                             expandedCountries.remove(group.name)
                                         } else {
@@ -241,6 +283,50 @@ private struct HeritageRow: View {
         }
     }
 
+    // New: return a color for the category icon
+    private func categoryColor(for category: String?) -> Color {
+        switch (category ?? "").lowercased() {
+        case let s where s.contains("cultural"): return Color.yellow
+        case let s where s.contains("natural"): return Color.green
+        case let s where s.contains("mixed"): return Color.purple
+        default: return Color.secondary
+        }
+    }
+
+    // Helper: produce flag emoji from ISO alpha-2 code
+    private func flagEmoji(from isoRaw: String?) -> String? {
+        guard let iso = isoRaw?.trimmingCharacters(in: .whitespacesAndNewlines), iso.count == 2 else { return nil }
+        let upper = iso.uppercased()
+        var scalars: [UnicodeScalar] = []
+        for ch in upper.unicodeScalars {
+            guard let scalar = UnicodeScalar(127397 + ch.value) else { return nil }
+            scalars.append(scalar)
+        }
+        return String(String.UnicodeScalarView(scalars))
+    }
+
+    // Simplified flag view: use emoji for maximum compatibility.
+    @ViewBuilder private func flagView(for item: NSManagedObject) -> some View {
+        if let isoRaw = item.value(forKey: "isoCode") as? String, let emoji = flagEmoji(from: isoRaw) {
+            Text(emoji)
+                .font(.system(size: 14))
+                .frame(width: 20, height: 14)
+        } else {
+            Rectangle().fill(Color.clear).frame(width: 20, height: 14)
+        }
+    }
+
+    // Local utility to split country strings (HeritageRow scope)
+    private func splitCountriesLocal(_ raw: String?) -> [String] {
+        guard let raw = raw, !raw.isEmpty else { return ["Unknown"] }
+        let separators = CharacterSet(charactersIn: ",，、;/|")
+        let parts = raw
+            .components(separatedBy: separators)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        return parts.isEmpty ? ["Unknown"] : parts
+    }
+
     var body: some View {
         HStack(alignment: .center, spacing: 12) {
             let thumbStr = item.value(forKey: "mainThumbURL") as? String
@@ -272,12 +358,36 @@ private struct HeritageRow: View {
                     .truncationMode(.tail)
                     .layoutPriority(1)
 
-                // Second line: country directly under name
-                Text((item.value(forKey: "country") as? String) ?? "—")
-                    .font(.footnote)
-                    .foregroundColor(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
+                // Second line: country with flag or globe+count for multi-country
+                HStack(spacing: 8) {
+                    let countryRaw = item.value(forKey: "country") as? String
+                    let countries = splitCountriesLocal(countryRaw)
+
+                    if countries.count > 1 {
+                        HStack(spacing: 6) {
+                            Image(systemName: "globe")
+                                .font(.system(size: 14))
+                                .foregroundColor(.blue)
+                            Text("\(countries.count)")
+                                .font(.footnote)
+                                .foregroundColor(.secondary)
+                        }
+
+                        Text(countries.joined(separator: ", "))
+                            .font(.footnote)
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    } else {
+                        flagView(for: item)
+
+                        Text(countryRaw ?? "—")
+                            .font(.footnote)
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
+                }
 
                 Spacer(minLength: 0) // push third line to bottom only
 
@@ -285,7 +395,7 @@ private struct HeritageRow: View {
                 HStack(spacing: 10) {
                     let cat = item.value(forKey: "category") as? String
                     Image(systemName: categoryIcon(for: cat))
-                        .foregroundColor(.secondary)
+                        .foregroundColor(categoryColor(for: cat))
                     Spacer()
                     let isVisited = (item.value(forKey: "isVisited") as? Bool) ?? false
                     Image(systemName: isVisited ? "checkmark.seal.fill" : "checkmark.seal")
@@ -317,6 +427,7 @@ private struct HeritageRow: View {
 private struct CountryRow: View {
     let index: Int
     let name: String
+    let isoCode: String?
     let total: Int
     let visited: Int
     let expanded: Bool
@@ -336,6 +447,17 @@ private struct CountryRow: View {
                 .font(.footnote)
                 .foregroundColor(.secondary)
                 .monospacedDigit()
+
+            // Inline flag emoji between index and country name
+            if let emoji = flagEmoji(from: isoCode) {
+                Text(emoji)
+                    .font(.system(size: 24))
+                    .frame(width: 34, height: 24)
+            } else {
+                // small spacer to keep alignment
+                Rectangle().fill(Color.clear).frame(width: 34, height: 24)
+            }
+
             Text(name)
                 .font(.body)
             Spacer()

@@ -110,6 +110,45 @@ enum DataImporter {
                 obj.setValue(reader["Main Image"], forKey: "mainImageURL")
                 if let imgs = reader["Images"] { obj.setValue(imgs, forKey: "galleryImageURLs") }
 
+                // --- new multilingual and metadata mappings ---
+                obj.setValue(reader["Name FR"], forKey: "nameFR")
+                obj.setValue(reader["Name ZH"], forKey: "nameZH")
+                obj.setValue(reader["Short Description FR"], forKey: "shortDescFR")
+                obj.setValue(reader["Short Description ZH"], forKey: "shortDescZH")
+                obj.setValue(reader["Justification EN"], forKey: "justificationEN")
+
+                // Area (hectares) - try several possible header names and box as NSNumber
+                if let areaStr = (reader["Area hectares"] ?? reader["Area (hectares)"] ?? reader["Area"]), !areaStr.isEmpty {
+                    let a = areaStr.trimmingCharacters(in: .whitespaces)
+                    if let areaVal = Double(a) {
+                        obj.setValue(NSNumber(value: areaVal), forKey: "areaHectares")
+                    }
+                }
+
+                // Criteria - prefer combined 'Criteria' otherwise combine Cultural/Natural
+                var crit = reader["Criteria"] ?? ""
+                if crit.isEmpty {
+                    let c1 = reader["Cultural Criteria"] ?? ""
+                    let c2 = reader["Natural Criteria"] ?? ""
+                    let parts = [c1, c2].map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+                    crit = parts.joined(separator: ",")
+                }
+                if !crit.isEmpty { obj.setValue(crit, forKey: "criteria") }
+
+                // ISO code (for FlagKit) - normalize to lowercased alpha-2 if present
+                if let iso = (reader["ISO Codes"] ?? reader["ISO Code"])?.trimmingCharacters(in: .whitespacesAndNewlines), !iso.isEmpty {
+                    obj.setValue(iso.lowercased(), forKey: "isoCode")
+                }
+
+                // Transboundary - convert common truthy values into NSNumber(bool)
+                if let tb = (reader["Transboundary"] ?? reader["Transboundary?"])?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(), !tb.isEmpty {
+                    let truthy = ["true", "yes", "1"]
+                    obj.setValue(NSNumber(value: truthy.contains(tb)), forKey: "transboundary")
+                }
+
+                // Main Image Author
+                obj.setValue(reader["Main Image Author"], forKey: "mainImageAuthor")
+
                 // Optional thumb column if present (from tools pipeline)
                 if let thumb = reader["Main Thumb"], !thumb.isEmpty { obj.setValue(thumb, forKey: "mainThumbURL") }
                 if let thumb2 = reader["mainThumbURL"], !thumb2.isEmpty { obj.setValue(thumb2, forKey: "mainThumbURL") }

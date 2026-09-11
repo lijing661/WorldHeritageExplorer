@@ -11,6 +11,7 @@
 		86541FEB2EA3782100B46B14 /* whc001.csv in Resources */ = {isa = PBXBuildFile; fileRef = 86541FEA2EA3782100B46B14 /* whc001.csv */; };
 		8692477D2EB5B02D001501A6 /* HeritageExplorer.xcdatamodeld in Sources */ = {isa = PBXBuildFile; fileRef = 8692477B2EB5B02D001501A6 /* HeritageExplorer.xcdatamodeld */; };
 		8692491C2ECF3A4F001501A6 /* thumbs_mapping.csv in Resources */ = {isa = PBXBuildFile; fileRef = 8692491B2ECF3A4F001501A6 /* thumbs_mapping.csv */; };
+		869FFFE8304EADCD00FD7B09 /* FlagKit in Frameworks */ = {isa = PBXBuildFile; productRef = 869FFFE7304EADCD00FD7B09 /* FlagKit */; };
 		B8879B083D3ECF90BD6E64F4 /* Pods_WorldHeritageExplorerTests.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 5FAA3C291B0493521C114F18 /* Pods_WorldHeritageExplorerTests.framework */; };
 		D66E643BE5684AE03A3B45BA /* Pods_WorldHeritageExplorer.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 16103707558CD7D0AB074C7A /* Pods_WorldHeritageExplorer.framework */; };
 /* End PBXBuildFile section */
@@ -39,6 +40,7 @@
 		86541FEA2EA3782100B46B14 /* whc001.csv */ = {isa = PBXFileReference; lastKnownFileType = text; path = whc001.csv; sourceTree = "<group>"; };
 		8692477C2EB5B02D001501A6 /* HeritageExplorer.xcdatamodel */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcdatamodel; path = HeritageExplorer.xcdatamodel; sourceTree = "<group>"; };
 		8692491B2ECF3A4F001501A6 /* thumbs_mapping.csv */ = {isa = PBXFileReference; lastKnownFileType = text; path = thumbs_mapping.csv; sourceTree = "<group>"; };
+		869FFFE5304D627B00FD7B09 /* HeritageExplorer 2.xcdatamodel */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcdatamodel; path = "HeritageExplorer 2.xcdatamodel"; sourceTree = "<group>"; };
 		86A900772EA355960080827D /* WorldHeritageExplorer.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = WorldHeritageExplorer.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		86A900842EA355960080827D /* WorldHeritageExplorerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = WorldHeritageExplorerTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		86A9008E2EA355960080827D /* WorldHeritageExplorerUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = WorldHeritageExplorerUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -87,6 +89,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				D66E643BE5684AE03A3B45BA /* Pods_WorldHeritageExplorer.framework in Frameworks */,
+				869FFFE8304EADCD00FD7B09 /* FlagKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -259,6 +262,9 @@
 			);
 			mainGroup = 86A9006E2EA355960080827D;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				869FFFE6304EADCD00FD7B09 /* XCRemoteSwiftPackageReference "FlagKit" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 86A900782EA355960080827D /* Products */;
 			projectDirPath = "";
@@ -743,13 +749,33 @@
 		};
 /* End XCConfigurationList section */
 
+/* Begin XCRemoteSwiftPackageReference section */
+		869FFFE6304EADCD00FD7B09 /* XCRemoteSwiftPackageReference "FlagKit" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/madebybowtie/FlagKit.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.4.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		869FFFE7304EADCD00FD7B09 /* FlagKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 869FFFE6304EADCD00FD7B09 /* XCRemoteSwiftPackageReference "FlagKit" */;
+			productName = FlagKit;
+		};
+/* End XCSwiftPackageProductDependency section */
+
 /* Begin XCVersionGroup section */
 		8692477B2EB5B02D001501A6 /* HeritageExplorer.xcdatamodeld */ = {
 			isa = XCVersionGroup;
 			children = (
+				869FFFE5304D627B00FD7B09 /* HeritageExplorer 2.xcdatamodel */,
 				8692477C2EB5B02D001501A6 /* HeritageExplorer.xcdatamodel */,
 			);
-			currentVersion = 8692477C2EB5B02D001501A6 /* HeritageExplorer.xcdatamodel */;
+			currentVersion = 869FFFE5304D627B00FD7B09 /* HeritageExplorer 2.xcdatamodel */;
 			path = HeritageExplorer.xcdatamodeld;
 			sourceTree = "<group>";
 			versionGroupType = wrapper.xcdatamodel;
