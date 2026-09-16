@@ -135,31 +135,163 @@ struct HeritageDetailView: View {
         }
     }
 
-    private var infoSection: some View {
-        VStack(spacing: 8) {
-            Text(name)
-                .font(.headline)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: .infinity)
-            Text(country)
-                .font(.subheadline)
-                .foregroundColor(.secondary)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: .infinity)
-            if !region.isEmpty {
-                Text("(\(region))")
-                    .font(.callout)
-                    .foregroundColor(.secondary)
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: .infinity)
+    private var yearInscribedText: String {
+        func extract(_ key: String) -> String? {
+            guard heritage.entity.attributesByName[key] != nil else { return nil }
+            let v = heritage.value(forKey: key)
+            if let i = v as? Int { return String(i) }
+            if let n = v as? NSNumber { return n.stringValue }
+            if let s = v as? String, !s.isEmpty { return s }
+            return nil
+        }
+        return extract("yearInscribed")
+            ?? extract("yearinscribed")
+            ?? extract("year_inscribed")
+            ?? extract("inscribedYear")
+            ?? "—"
+    }
+
+    // Helper: produce flag emoji from ISO alpha-2 code
+    private func flagEmoji(from isoRaw: String?) -> String? {
+        guard let iso = isoRaw?.trimmingCharacters(in: .whitespacesAndNewlines), iso.count == 2 else { return nil }
+        let upper = iso.uppercased()
+        var scalars: [UnicodeScalar] = []
+        for ch in upper.unicodeScalars {
+            guard let scalar = UnicodeScalar(127397 + ch.value) else { return nil }
+            scalars.append(scalar)
+        }
+        return String(String.UnicodeScalarView(scalars))
+    }
+
+    // Utility to split country strings into tokens used in this view
+    private func splitCountries(_ raw: String?) -> [String] {
+        guard let raw = raw, !raw.isEmpty else { return ["Unknown"] }
+        let separators = CharacterSet(charactersIn: ",，、;/|")
+        let parts = raw
+            .components(separatedBy: separators)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        return parts.isEmpty ? ["Unknown"] : parts
+    }
+
+    // Utility to split ISO codes from CSV (e.g., "AL, ME" -> ["al","me"]) 
+    private func splitISOCodes(_ raw: String?) -> [String] {
+        guard let raw = raw, !raw.isEmpty else { return [] }
+        let separators = CharacterSet(charactersIn: ",;|/ ")
+        let parts = raw
+            .components(separatedBy: separators)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+            .filter { !$0.isEmpty }
+        return parts
+    }
+
+    // Build aligned pairs of (optional emoji, country name)
+    private func countryFlagPairs() -> [(emoji: String?, name: String)] {
+        let countryRaw = heritage.value(forKey: "country") as? String
+        let isoRaw = heritage.value(forKey: "isoCode") as? String
+        let countries = splitCountries(countryRaw)
+        let isoTokens = splitISOCodes(isoRaw)
+        var pairs: [(String?, String)] = []
+        for (idx, c) in countries.enumerated() {
+            var iso: String? = nil
+            if isoTokens.count > idx { iso = isoTokens[idx] }
+            if iso == nil {
+                // try authoritative lookup if available
+                if let lookup = isoForCountry(c) { iso = lookup }
             }
+            let emoji = flagEmoji(from: iso)
+            pairs.append((emoji, c))
+        }
+        return pairs
+    }
+
+    // Simple criteria extraction
+    private var criteriaText: String {
+        if let s = heritage.value(forKey: "criteria") as? String, !s.isEmpty { return s }
+        if let s = heritage.value(forKey: "criterion") as? String, !s.isEmpty { return s }
+        return "—"
+    }
+
+    private var infoSection: some View {
+        // New layout: bold centered name; category badge on second line; flags+country names left-aligned; region left-aligned with icon; inscription year; criteria
+        VStack(spacing: 8) {
+            // 1. Name, bold centered
+            Text(name)
+                .font(.title2)
+                .bold()
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: .infinity)
+
+            // 2. Category badge (moved here)
             HStack {
                 categoryBadge
                 Spacer()
-                Text("Inscribed in: \(yearInscribedText)")
+            }
+            .frame(maxWidth: .infinity)
+
+            // 3. Flags + country names inline, left aligned (wrap if long)
+            let pairs = countryFlagPairs()
+            if !pairs.isEmpty {
+                let combined = pairs.map { pair -> String in
+                    if let e = pair.emoji { return "\(e) \(pair.name)" }
+                    return pair.name
+                }.joined(separator: ", ")
+
+                Text(combined)
+                    .font(.subheadline)
+                    .foregroundColor(.primary)
+                    .multilineTextAlignment(.leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                Text(country)
+                    .font(.subheadline)
+                    .foregroundColor(.primary)
+                    .multilineTextAlignment(.leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            // 4. Region with icon, left aligned
+            if !region.isEmpty {
+                HStack(spacing: 6) {
+                    Image(systemName: "mappin.and.ellipse")
+                        .foregroundColor(.red)
+                    Text(region)
+                        .font(.callout)
+                        .foregroundColor(.primary)
+                    Spacer()
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            // 5. Inscription year
+            HStack(spacing: 8) {
+                Image(systemName: "calendar")
                     .font(.footnote)
                     .foregroundColor(.secondary)
+                Text("Inscription:")
+                    .font(.footnote)
+                    .foregroundColor(.primary)
+                Text(yearInscribedText)
+                    .font(.footnote)
+                    .foregroundColor(.primary)
+                Spacer()
             }
+
+            // 6. Criteria
+            HStack(spacing: 8) {
+                Image(systemName: "list.bullet")
+                    .font(.footnote)
+                    .foregroundColor(.secondary)
+                Text("Criteria:")
+                    .font(.footnote)
+                    .foregroundColor(.primary)
+                Text(criteriaText)
+                    .font(.footnote)
+                    .foregroundColor(.primary)
+                Spacer()
+            }
+
+            // no bottom category badge (moved to second line)
         }
         .padding(12)
         .background(Color.white)
@@ -170,7 +302,6 @@ struct HeritageDetailView: View {
 
     private var categoryBadge: some View {
         HStack(spacing: 6) {
-            Image(systemName: categoryIconName)
             Text(category.isEmpty ? "Unknown" : category)
                 .font(.caption)
                 .bold()
@@ -206,22 +337,6 @@ struct HeritageDetailView: View {
             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             .shadow(color: Color.black.opacity(0.05), radius: 4, x: 0, y: 1)
             .padding(.horizontal, 8)
-    }
-
-    private var yearInscribedText: String {
-        func extract(_ key: String) -> String? {
-            guard heritage.entity.attributesByName[key] != nil else { return nil }
-            let v = heritage.value(forKey: key)
-            if let i = v as? Int { return String(i) }
-            if let n = v as? NSNumber { return n.stringValue }
-            if let s = v as? String, !s.isEmpty { return s }
-            return nil
-        }
-        return extract("yearInscribed")
-            ?? extract("yearinscribed")
-            ?? extract("year_inscribed")
-            ?? extract("inscribedYear")
-            ?? "—"
     }
 
     private func toggleFavorite() {
