@@ -18,6 +18,9 @@ struct HeritageDetailView: View {
     @State private var showFullMap = false
     @State private var mainTimeoutFired = false
     @State private var mainReloadToken = UUID()
+    @State private var mediumUIImage: UIImage? = nil
+    @State private var mediumLoading = false
+    @State private var imageLoaded = false
 
     private var latitude: Double? { heritage.value(forKey: "latitude") as? Double }
     private var longitude: Double? { heritage.value(forKey: "longitude") as? Double }
@@ -67,39 +70,105 @@ struct HeritageDetailView: View {
         ScrollView {
             VStack(spacing: 12) {
                 if let url = mainImageURL {
+                    // Prefer a small thumb if available; otherwise show the main image but downsample
+                    let thumbURL = mainThumbURL
+                    let displayURL = thumbURL ?? mainImageURL
+                    // Use a fixed, prominent height near ~2/3 screen width (choose 320pt)
+                    let imageHeight: CGFloat = 320
                     ZStack(alignment: .bottomTrailing) {
-                        KFImage(url)
+                        // 1) Always show the small thumb (if present) or the main image as fallback
+                        KFImage(displayURL)
                             .placeholder { mainSkeleton }
                             .retry(maxCount: 2, interval: .seconds(2))
-                            .cacheOriginalImage()
                             .backgroundDecode()
+                            .downsampling(size: CGSize(width: UIScreen.main.bounds.width * UIScreen.main.scale, height: imageHeight * UIScreen.main.bounds.height * UIScreen.main.scale))
+                            .onFailure { _ in mainTimeoutFired = true }
+                            .onSuccess { _ in
+                                imageLoaded = true
+                                mainTimeoutFired = false
+                            }
                             .resizable()
                             .scaledToFill()
                             .id(mainReloadToken)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 220)
+                            .frame(width: UIScreen.main.bounds.width, height: imageHeight)
                             .clipped()
+
+                        // 2) If we have already fetched a medium image (higher quality), show it on top with a fade
+                        if let img = mediumUIImage {
+                            Image(uiImage: img)
+                                .resizable()
+                                .scaledToFill()
+                                .frame(width: UIScreen.main.bounds.width, height: imageHeight)
+                                .clipped()
+                                .transition(.opacity)
+                        }
+
                         if mainTimeoutFired { mainRetryBadge }
                     }
                     .onAppear {
                         mainTimeoutFired = false
+
+                        // kick off medium-size fetch if we don't have it yet
+                        if mediumUIImage == nil && !mediumLoading {
+                            mediumLoading = true
+                            DispatchQueue.global(qos: .userInitiated).async {
+                                // prefer to derive a medium URL from the authoritative mainImageURL
+                                let mediumURL = deriveMediumURL(from: mainImageURL) ?? deriveMediumURL(from: thumbURL)
+                                guard let mURL = mediumURL else { mediumLoading = false; return }
+
+                                // choose a target width (px). Use a reasonable middle ground (e.g. 1200px)
+                                let targetWidth: CGFloat = 1200
+                                // preserve display aspect ratio based on imageHeight vs screen width
+                                let aspect = imageHeight / UIScreen.main.bounds.width
+                                let targetSize = CGSize(width: targetWidth * UIScreen.main.scale, height: targetWidth * aspect * UIScreen.main.scale)
+
+                                let processor = DownsamplingImageProcessor(size: targetSize)
+                                let options: KingfisherOptionsInfo = [
+                                    .processor(processor),
+                                    .scaleFactor(UIScreen.main.scale),
+                                    .backgroundDecode
+                                ]
+
+                                KingfisherManager.shared.retrieveImage(with: mURL, options: options, progressBlock: nil) { result in
+                                    DispatchQueue.main.async {
+                                        mediumLoading = false
+                                        switch result {
+                                        case .success(let value):
+                                            // store processed image (Kingfisher cached processed result by key)
+                                            mediumUIImage = value.image
+                                            imageLoaded = true
+                                            mainTimeoutFired = false
+                                        case .failure:
+                                            // no medium available; leave thumb displayed
+                                            break
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // existing cache-check logic for retry badge
                         DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
-                            // 如果仍未有缓存（磁盘或内存），给出重试按钮
-                            if let key = mainImageURL?.absoluteString {
+                            // If image already loaded (visible) or medium is ready, don't show retry
+                            if imageLoaded || mediumUIImage != nil { return }
+                            if let key = displayURL?.absoluteString {
                                 ImageCache.default.retrieveImage(forKey: key, options: nil, completionHandler: { result in
                                     switch result {
                                     case .success(let value):
-                                        if value.cacheType == .none { mainTimeoutFired = true }
+                                        if value.cacheType == .none { mainTimeoutFired = true } else { imageLoaded = true }
                                     case .failure:
                                         mainTimeoutFired = true
                                     }
                                 })
+                            } else {
+                                mainTimeoutFired = true
                             }
                         }
                     }
                 } else {
+                    let imageHeight: CGFloat = 320
                     Color.gray.opacity(0.1)
-                        .frame(height: 220)
+                        .frame(height: imageHeight)
                         .overlay(Text("No Image").foregroundColor(.secondary))
                 }
 
@@ -149,6 +218,19 @@ struct HeritageDetailView: View {
             ?? extract("year_inscribed")
             ?? extract("inscribedYear")
             ?? "—"
+    }
+
+    // Safe accessor to avoid KVC exceptions when model lacks a key
+    private func safeValue(forKey key: String) -> Any? {
+        guard heritage.entity.attributesByName[key] != nil else { return nil }
+        return heritage.value(forKey: key)
+    }
+
+    // Simple criteria extraction
+    private var criteriaText: String {
+        if let s = safeValue(forKey: "criteria") as? String, !s.isEmpty { return s }
+        if let s = safeValue(forKey: "criterion") as? String, !s.isEmpty { return s }
+        return "—"
     }
 
     // Helper: produce flag emoji from ISO alpha-2 code
@@ -205,13 +287,6 @@ struct HeritageDetailView: View {
         return pairs
     }
 
-    // Simple criteria extraction
-    private var criteriaText: String {
-        if let s = heritage.value(forKey: "criteria") as? String, !s.isEmpty { return s }
-        if let s = heritage.value(forKey: "criterion") as? String, !s.isEmpty { return s }
-        return "—"
-    }
-
     private var infoSection: some View {
         // New layout: bold centered name; category badge on second line; flags+country names left-aligned; region left-aligned with icon; inscription year; criteria
         VStack(spacing: 8) {
@@ -266,13 +341,13 @@ struct HeritageDetailView: View {
             // 5. Inscription year
             HStack(spacing: 8) {
                 Image(systemName: "calendar")
-                    .font(.footnote)
-                    .foregroundColor(.secondary)
+                    .font(.subheadline)
+                    .foregroundColor(.blue)
                 Text("Inscription:")
-                    .font(.footnote)
+                    .font(.subheadline)
                     .foregroundColor(.primary)
                 Text(yearInscribedText)
-                    .font(.footnote)
+                    .font(.subheadline)
                     .foregroundColor(.primary)
                 Spacer()
             }
@@ -280,13 +355,13 @@ struct HeritageDetailView: View {
             // 6. Criteria
             HStack(spacing: 8) {
                 Image(systemName: "list.bullet")
-                    .font(.footnote)
-                    .foregroundColor(.secondary)
+                    .font(.subheadline)
+                    .foregroundColor(.black)
                 Text("Criteria:")
-                    .font(.footnote)
+                    .font(.subheadline)
                     .foregroundColor(.primary)
                 Text(criteriaText)
-                    .font(.footnote)
+                    .font(.subheadline)
                     .foregroundColor(.primary)
                 Spacer()
             }
@@ -415,6 +490,60 @@ struct HeritageDetailView: View {
             .clipShape(Capsule())
             .padding(8)
         }
+    }
+
+    // Attempt to derive a medium-size URL from Wikimedia-style image URLs.
+    // Returns a URL for a medium-sized thumbnail (e.g. 800–1400px) when derivation is possible.
+    private func deriveMediumURL(from url: URL?) -> URL? {
+        guard let url = url else { return nil }
+        let host = url.host ?? ""
+        // Handle Wikimedia / upload.wikimedia.org pattern
+        if host.contains("upload.wikimedia.org") {
+            // Expect path like /wikipedia/commons/AA/BB/Filename.ext
+            let path = url.path
+            // find the index of "/wikipedia/commons/"
+            if let range = path.range(of: "/wikipedia/commons/") {
+                let suffix = path[range.upperBound...]
+                // build thumb path: /wikipedia/commons/thumb/{suffix}/{width}px-{filename}
+                let components = suffix.split(separator: "/")
+                guard let filename = components.last else { return nil }
+                // rebuild the thumb path prefix (everything except filename)
+                let prefix = components.dropLast().joined(separator: "/")
+                // pick a width in px (use 1200 as default within requested 800–1400)
+                let width = 1200
+                let thumbPath = "/wikipedia/commons/thumb/\(prefix)/\(filename)/\(width)px-\(filename)"
+                var comps = URLComponents()
+                comps.scheme = url.scheme
+                comps.host = url.host
+                comps.path = thumbPath
+                return comps.url
+            }
+        }
+
+        // If the URL already contains "/thumb/" and a pixel size, try to increase size by replacing the number
+        if url.path.contains("/thumb/") {
+            // naive replace: find last path component that starts with digits and "px-"
+            let parts = url.path.split(separator: "/")
+            if let last = parts.last, last.contains("px-") {
+                // replace leading digits up to "px-" with 1200px
+                let s = String(last)
+                if let idx = s.firstIndex(of: "p") {
+                    let filename = s[s.index(idx, offsetBy: 3)...] // after "px-"
+                    let new = "1200px-\(filename)"
+                    var newParts = parts
+                    newParts[newParts.count - 1] = Substring(new)
+                    let newPath = "/" + newParts.joined(separator: "/")
+                    var comps = URLComponents()
+                    comps.scheme = url.scheme
+                    comps.host = url.host
+                    comps.path = newPath
+                    return comps.url
+                }
+            }
+        }
+
+        // Cannot derive a medium variant for unknown hosts
+        return nil
     }
 }
 

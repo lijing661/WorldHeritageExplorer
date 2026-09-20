@@ -232,10 +232,9 @@ struct ListView: View {
 
     private func prefetchTopImages(limit: Int = 20) {
         let baseList = isSearching ? searchResults : filtered
+        // Only prefetch pre-generated thumbnails to avoid downloading/caching large originals
         let urls: [URL] = baseList.prefix(limit).compactMap { obj in
-            // prefer thumb
             if let s = obj.value(forKey: "mainThumbURL") as? String, let u = URL(string: s), !s.isEmpty { return u }
-            if let s = obj.value(forKey: "mainImageURL") as? String, let u = URL(string: s), !s.isEmpty { return u }
             return nil
         }
         let keys = Set(urls.map { $0.absoluteString })
@@ -244,7 +243,7 @@ struct ListView: View {
         prefetcher?.stop()
         let pf = ImagePrefetcher(
             urls: urls,
-            options: [.backgroundDecode, .cacheOriginalImage],
+            options: [.backgroundDecode],
             progressBlock: nil,
             completionHandler: nil
         )
@@ -335,7 +334,6 @@ private struct HeritageRow: View {
                 KFImage(url)
                     .placeholder { skeleton }
                     .retry(maxCount: 2, interval: .seconds(2))
-                    .cacheOriginalImage()
                     .backgroundDecode()
                     .downsampling(size: CGSize(width: 90 * UIScreen.main.scale, height: 90 * UIScreen.main.scale))
                     .fade(duration: 0.25)

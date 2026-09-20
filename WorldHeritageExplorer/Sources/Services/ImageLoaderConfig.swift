@@ -22,7 +22,8 @@ enum ImageLoaderConfig {
         let cache = ImageCache.default
         cache.memoryStorage.config.totalCostLimit = 150 * 1024 * 1024 // ~150MB
         cache.memoryStorage.config.expiration = .seconds(1800)        // 30 min in-memory
-        cache.diskStorage.config.sizeLimit = 500 * 1024 * 1024        // ~500MB on disk
+        // Reduce disk cache to limit growth from large originals; thumbnails will still be cached
+        cache.diskStorage.config.sizeLimit = 250 * 1024 * 1024        // ~250MB on disk (reduced from 500MB)
         cache.diskStorage.config.expiration = .days(7)
     }
 }
