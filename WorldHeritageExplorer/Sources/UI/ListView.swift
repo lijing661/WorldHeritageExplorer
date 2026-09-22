@@ -9,6 +9,11 @@ import CoreData
 import Kingfisher
 import FlagKit
 
+// Notification used by banner messages
+private extension Notification.Name {
+    static let heritageAction = Notification.Name("heritageAction")
+}
+
 struct ListView: View {
     @Environment(\.managedObjectContext) private var viewContext
     @AppStorage("didImportCSV") private var didImportCSV = false
@@ -20,6 +25,13 @@ struct ListView: View {
     @State private var prefetcher: ImagePrefetcher? = nil
     @State private var lastPrefetchKeys: Set<String> = []
     @State private var expandedCountries: Set<String> = []
+    @State private var selectedItem: NSManagedObject? = nil
+    @State private var isActiveDetail: Bool = false
+
+    // Banner state for top notifications
+    @State private var bannerText: String? = nil
+    @State private var bannerIcon: String = "checkmark.circle"
+    @State private var showBanner: Bool = false
 
     init() {
         let request = NSFetchRequest<NSManagedObject>(entityName: "Heritage")
@@ -122,6 +134,29 @@ struct ListView: View {
         return result.sorted { $0.name < $1.name }
     }
 
+    // Prefetch top thumbnail images (used by .onAppear/.onChange in body)
+    private func prefetchTopImages(limit: Int = 20) {
+        let baseList = isSearching ? searchResults : filtered
+        // Only prefetch pre-generated thumbnails to avoid downloading/caching large originals
+        let urls: [URL] = baseList.prefix(limit).compactMap { obj in
+            if let s = obj.value(forKey: "mainThumbURL") as? String, let u = URL(string: s), !s.isEmpty { return u }
+            return nil
+        }
+        let keys = Set(urls.map { $0.absoluteString })
+        guard !urls.isEmpty, keys != lastPrefetchKeys else { return }
+        lastPrefetchKeys = keys
+        prefetcher?.stop()
+        let pf = ImagePrefetcher(
+            urls: urls,
+            options: [.backgroundDecode],
+            progressBlock: nil,
+            completionHandler: nil
+        )
+        pf.maxConcurrentDownloads = 6
+        prefetcher = pf
+        pf.start()
+    }
+
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
@@ -140,6 +175,12 @@ struct ListView: View {
                 if showSearch {
                     Color.clear.frame(height: 20)
                 }
+
+                // Hidden navigation link for programmatic navigation (prevents chevrons)
+                NavigationLink(destination: Group {
+                    if let sel = selectedItem { HeritageDetailView(item: sel) }
+                }, isActive: $isActiveDetail) { EmptyView() }
+                .hidden()
 
                 if !didImportCSV {
                     VStack(spacing: 12) {
@@ -172,11 +213,14 @@ struct ListView: View {
                                         }
                             ) {
                                 ForEach(searchResults, id: \.objectID) { item in
-                                    NavigationLink(destination: HeritageDetailView(item: item)) {
-                                        HeritageRow(item: item)
-                                            .padding(.vertical, 2)
-                                    }
-                                    .listRowBackground(Color(.systemBackground))
+                                    HeritageRow(item: item)
+                                        .padding(.vertical, 2)
+                                        .contentShape(Rectangle())
+                                        .onTapGesture {
+                                            selectedItem = item
+                                            isActiveDetail = true
+                                        }
+                                        .listRowBackground(Color(.systemBackground))
                                 }
                             }
                         }
@@ -200,21 +244,24 @@ struct ListView: View {
 
                                     if expandedCountries.contains(group.name) {
                                         ForEach(group.items, id: \.objectID) { item in
-                                            NavigationLink(destination: HeritageDetailView(item: item)) {
-                                                HeritageRow(item: item)
-                                                    .padding(.vertical, 2)
-                                            }
-                                            .listRowBackground(Color(.systemBackground))
-                                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                                                Button {
-                                                    // Collapse the country when tapping the down arrow
-                                                    expandedCountries.remove(group.name)
-                                                } label: {
-                                                    Image(systemName: "arrow.up.left.and.arrow.down.right")
-                                                        .foregroundColor(.white)
+                                            HeritageRow(item: item)
+                                                .padding(.vertical, 2)
+                                                .contentShape(Rectangle())
+                                                .onTapGesture {
+                                                    selectedItem = item
+                                                    isActiveDetail = true
                                                 }
-                                                .tint(.green)
-                                            }
+                                                .listRowBackground(Color(.systemBackground))
+                                                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                                    Button {
+                                                        // Collapse the country when tapping the down arrow
+                                                        expandedCountries.remove(group.name)
+                                                    } label: {
+                                                        Image(systemName: "arrow.up.left.and.arrow.down.right")
+                                                            .foregroundColor(.white)
+                                                    }
+                                                    .tint(.green)
+                                                }
                                         }
                                     }
                                 }
@@ -227,29 +274,57 @@ struct ListView: View {
                     }
                 }
             }
-        }
-    }
+            // Listen for toggle actions from child views and show a brief banner
+            .onReceive(NotificationCenter.default.publisher(for: .heritageAction)) { note in
+                guard let info = note.userInfo as? [String: Any],
+                      let action = info["action"] as? String,
+                      let isOn = info["isOn"] as? Bool else { return }
 
-    private func prefetchTopImages(limit: Int = 20) {
-        let baseList = isSearching ? searchResults : filtered
-        // Only prefetch pre-generated thumbnails to avoid downloading/caching large originals
-        let urls: [URL] = baseList.prefix(limit).compactMap { obj in
-            if let s = obj.value(forKey: "mainThumbURL") as? String, let u = URL(string: s), !s.isEmpty { return u }
-            return nil
+                    switch (action, isOn) {
+                    case ("visited", true):
+                        bannerIcon = "checkmark.circle"
+                        bannerText = "Mark as visited."
+                    case ("visited", false):
+                        bannerIcon = "xmark.circle"
+                        bannerText = "Removed from visited list!"
+                    case ("favorite", true):
+                        bannerIcon = "checkmark.circle"
+                        bannerText = "Mark as favorite."
+                    case ("favorite", false):
+                        bannerIcon = "xmark.circle"
+                        bannerText = "Removed from favorite list!"
+                    default:
+                        return
+                    }
+
+                    withAnimation(.spring()) { showBanner = true }
+                    // auto-dismiss after 1.6s
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
+                        withAnimation(.easeOut) { showBanner = false }
+                    }
+            }
+            // top overlay banner
+            .overlay(alignment: .top) {
+                if showBanner, let text = bannerText {
+                    HStack(spacing: 10) {
+                        Image(systemName: bannerIcon)
+                            .foregroundColor(.white)
+                        Text(text)
+                            .foregroundColor(.white)
+                            .font(.subheadline)
+                    }
+                    .padding(.vertical, 8)
+                    .padding(.horizontal, 14)
+                    .background(Color.black.opacity(0.8))
+                    .cornerRadius(12)
+                    .padding(.top, 10)
+                    .padding(.horizontal, 12)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .zIndex(10)
+                }
+            }
         }
-        let keys = Set(urls.map { $0.absoluteString })
-        guard !urls.isEmpty, keys != lastPrefetchKeys else { return }
-        lastPrefetchKeys = keys
-        prefetcher?.stop()
-        let pf = ImagePrefetcher(
-            urls: urls,
-            options: [.backgroundDecode],
-            progressBlock: nil,
-            completionHandler: nil
-        )
-        pf.maxConcurrentDownloads = 6
-        prefetcher = pf
-        pf.start()
+
     }
 
     private var header: some View {
@@ -268,10 +343,114 @@ struct ListView: View {
         .padding(.horizontal)
         .padding(.vertical, 8)
     }
+
+    // Helper: simple category icon + color used by trailing controls
+    private func categoryIcon(for category: String?) -> String {
+        switch (category ?? "").lowercased() {
+        case let s where s.contains("cultural"): return "building.columns.fill"
+        case let s where s.contains("natural"): return "leaf.fill"
+        case let s where s.contains("mixed"): return "circle.lefthalf.filled"
+        default: return "questionmark.circle"
+        }
+    }
+
+    private func categoryColor(for category: String?) -> Color {
+        switch (category ?? "").lowercased() {
+        case let s where s.contains("cultural"): return Color.yellow
+        case let s where s.contains("natural"): return Color.green
+        case let s where s.contains("mixed"): return Color.purple
+        default: return Color.secondary
+        }
+    }
+
+    @ViewBuilder
+    private func leadingRowContent(for item: NSManagedObject) -> some View {
+        HStack(alignment: .center, spacing: 12) {
+            let thumbStr = item.value(forKey: "mainThumbURL") as? String
+            let urlStr = (thumbStr?.isEmpty ?? true) ? (item.value(forKey: "mainImageURL") as? String) : thumbStr
+            if let urlStr, let url = URL(string: urlStr), !urlStr.isEmpty {
+                KFImage(url)
+                    .placeholder { RoundedRectangle(cornerRadius: 8).fill(Color.gray.opacity(0.15)).frame(width: 90, height: 90) }
+                    .retry(maxCount: 2, interval: .seconds(2))
+                    .backgroundDecode()
+                    .downsampling(size: CGSize(width: 90 * UIScreen.main.scale, height: 90 * UIScreen.main.scale))
+                    .fade(duration: 0.25)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: 90, height: 90)
+                    .clipped()
+                    .cornerRadius(8)
+            } else {
+                RoundedRectangle(cornerRadius: 8).fill(Color.gray.opacity(0.15)).frame(width: 90, height: 90)
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text((item.value(forKey: "name") as? String) ?? "—")
+                    .font(.subheadline)
+                    .lineLimit(2)
+                    .truncationMode(.tail)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                let countryRaw = item.value(forKey: "country") as? String
+                Text(countryRaw ?? "—")
+                    .font(.footnote)
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+            }
+            .frame(height: 90)
+        }
+    }
+
+    @ViewBuilder
+    private func trailingControls(for item: NSManagedObject) -> some View {
+        HStack(spacing: 10) {
+            let cat = item.value(forKey: "category") as? String
+            Image(systemName: categoryIcon(for: cat))
+                .foregroundColor(categoryColor(for: cat))
+
+            let isVisited = (item.value(forKey: "isVisited") as? Bool) ?? false
+            Button {
+                let new = !isVisited
+                item.setValue(new, forKey: "isVisited")
+                do { try viewContext.save() } catch { /* ignore */ }
+                NotificationCenter.default.post(name: .heritageAction, object: nil, userInfo: ["action": "visited", "isOn": new])
+            } label: {
+                Image(systemName: isVisited ? "checkmark.seal.fill" : "checkmark.seal")
+                    .foregroundColor(isVisited ? .green : .secondary)
+                    .font(.title3)
+                    .frame(width: 36, height: 36)
+            }
+            .buttonStyle(.plain)
+            .contentShape(Rectangle())
+            .padding(.trailing, 4)
+
+            let isFavorite = (item.value(forKey: "isFavorite") as? Bool) ?? false
+            Button {
+                let new = !isFavorite
+                item.setValue(new, forKey: "isFavorite")
+                do { try viewContext.save() } catch { /* ignore */ }
+                NotificationCenter.default.post(name: .heritageAction, object: nil, userInfo: ["action": "favorite", "isOn": new])
+            } label: {
+                Image(systemName: isFavorite ? "heart.fill" : "heart")
+                    .foregroundColor(isFavorite ? .red : .secondary)
+                    .font(.title3)
+                    .frame(width: 36, height: 36)
+            }
+            .buttonStyle(.plain)
+            .contentShape(Rectangle())
+            .padding(.trailing, 2)
+        }
+        .frame(height: 90)
+        .padding(.trailing, 8)
+    }
+
 }
 
 private struct HeritageRow: View {
-    let item: NSManagedObject
+    @ObservedObject var item: NSManagedObject
+
+    @Environment(\.managedObjectContext) private var viewContext
 
     private func categoryIcon(for category: String?) -> String {
         switch (category ?? "").lowercased() {
@@ -354,6 +533,8 @@ private struct HeritageRow: View {
                     .font(.subheadline)
                     .lineLimit(2)
                     .truncationMode(.tail)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
                     .layoutPriority(1)
 
                 // Second line: country with flag or globe+count for multi-country
@@ -389,20 +570,44 @@ private struct HeritageRow: View {
 
                 Spacer(minLength: 0) // push third line to bottom only
 
-                // Third line: category icon + favorite + visited (larger icons)
-                HStack(spacing: 10) {
+                // Third line: category icon + favorite + visited (larger icons) — now tappable
+                HStack(spacing: 4) {
                     let cat = item.value(forKey: "category") as? String
                     Image(systemName: categoryIcon(for: cat))
                         .foregroundColor(categoryColor(for: cat))
+
                     Spacer()
+
+                    // Use circle variants for visited to get a simple ring + checkmark
                     let isVisited = (item.value(forKey: "isVisited") as? Bool) ?? false
-                    Image(systemName: isVisited ? "checkmark.seal.fill" : "checkmark.seal")
-                        .foregroundColor(isVisited ? .green : .secondary)
-                        .font(.callout)
+                    Button {
+                        let new = !isVisited
+                        item.setValue(new, forKey: "isVisited")
+                        do { try viewContext.save() } catch { /* ignore */ }
+                        NotificationCenter.default.post(name: .heritageAction, object: nil, userInfo: ["action": "visited", "isOn": new])
+                    } label: {
+                        Image(systemName: isVisited ? "checkmark.circle.fill" : "checkmark.circle")
+                            .foregroundColor(isVisited ? .green : .secondary)
+                            .font(.title3)
+                            .frame(width: 28, height: 28)
+                    }
+                    .buttonStyle(.plain)
+                    .contentShape(Rectangle())
+
                     let isFavorite = (item.value(forKey: "isFavorite") as? Bool) ?? false
-                    Image(systemName: isFavorite ? "heart.fill" : "heart")
-                        .foregroundColor(isFavorite ? .red : .secondary)
-                        .font(.callout)
+                    Button {
+                        let new = !isFavorite
+                        item.setValue(new, forKey: "isFavorite")
+                        do { try viewContext.save() } catch { /* ignore */ }
+                        NotificationCenter.default.post(name: .heritageAction, object: nil, userInfo: ["action": "favorite", "isOn": new])
+                    } label: {
+                        Image(systemName: isFavorite ? "heart.fill" : "heart")
+                            .foregroundColor(isFavorite ? .red : .secondary)
+                            .font(.title3)
+                            .frame(width: 28, height: 28)
+                    }
+                    .buttonStyle(.plain)
+                    .contentShape(Rectangle())
                 }
                 .padding(.trailing, 2)
             }
