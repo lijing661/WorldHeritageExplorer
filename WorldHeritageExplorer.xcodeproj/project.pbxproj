@@ -263,7 +263,7 @@
 			mainGroup = 86A9006E2EA355960080827D;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				869FFFE6304EADCD00FD7B09 /* XCRemoteSwiftPackageReference "FlagKit" */,
+				869FFFEE3067B33200FD7B09 /* XCRemoteSwiftPackageReference "FlagKit" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 86A900782EA355960080827D /* Products */;
@@ -751,6 +751,14 @@
 
 /* Begin XCRemoteSwiftPackageReference section */
 		869FFFE6304EADCD00FD7B09 /* XCRemoteSwiftPackageReference "FlagKit" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/madebybowtie/FlagKit.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.4.0;
+			};
+		};
+		869FFFEE3067B33200FD7B09 /* XCRemoteSwiftPackageReference "FlagKit" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/madebybowtie/FlagKit.git";
 			requirement = {
